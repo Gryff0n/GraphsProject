@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>export</title>
+  <script src="https://cdn.jsdelivr.net/npm/pyfrilet@0.7.5/pyfrilet.min.js"></script>
+</head>
+<body>
+
+<script type="text/markdown" data-tab="Énoncé">
+# Projet
+
+L'implémentation de ce projet utilise l'environnement [pyfrilet](https://codeberg.org/nopid/pyfrilet#readme).
+Comme l'indique sa documentation :
+
+> pyfrilet est un petit système pour publier des animations Python interactives sur une page web. Il combine p5.js (dessin 2D) et Pyodide (Python dans le navigateur) avec un éditeur de code intégré qu'on tire depuis le bas de la page.
+
+Nous vous invitons à consulter la documentation de [pyfrilet](https://codeberg.org/nopid/pyfrilet#readme), même si la suite du projet utilise essentiellement le langage Python.
+
+
+Dans la suite, nous souhaitons implémenter deux algorithmes :
+1. un algorithme *à forces dirigées* pour représenter des graphes dans le plan;
+2. un algorithme pour construire un graphe à partir d'un *vecteur de degrés*.
+
+---
+
+## 1. Algorithme de Fruchterman-Reingold
+
+Afficher un graphe de façon lisible n'est pas trivial : il faut choisir des coordonnées $(x, y)$ pour chaque sommet de manière à ce que :
+
+- les sommets ne soient pas trop proches les uns des autres;
+- les sommets reliés par une arête soient relativement proches;
+- le dessin final tienne dans un cadre de taille donnée.
+
+Une famille d'algorithmes très utilisée pour résoudre ce problème repose sur une analogie physique :
+on simule un système de *forces* entre les sommets, un peu comme des particules chargées reliées par des ressorts.
+
+L'algorithme de *Fruchterman-Reingold* (1991) est l'un des plus connus et des plus simples à implémenter.
+
+### 1.1 Principe de l'algorithme
+
+Le principe général est le suivant :
+
+1. Tous les sommets se *repoussent* entre eux (comme des charges électriques de même signe).
+2. Les sommets reliés par une arête s'*attirent* (comme s'ils étaient reliés par un ressort).
+3. On répète ces calculs de forces sur plusieurs itérations, en déplaçant progressivement les sommets, jusqu'à obtenir une configuration stable et équilibrée.
+
+
+### 1.2 Notations
+
+- Soit un graphe avec `n` sommets, affichés dans un cadre de largeur `width` et de hauteur `height`.
+- On définit une *distance idéale* `k` entre deux sommets, calculée à partir de l'aire disponible :
+
+```
+k = sqrt((width * height) / n)
+```
+
+Cette distance sert de référence : c'est approximativement la distance que l'on aimerait avoir entre deux sommets *proches* dans le dessin.
+
+
+### 1.3 Force de répulsion
+
+Chaque paire de sommets $u$ et $v$ (qu'ils soient reliés par une arête ou non) se repousse mutuellement.
+Plus deux sommets sont proches, plus la répulsion est forte. La formule utilisée est :
+
+```
+force = k² / d
+```
+
+où $d = \sqrt{d_x^2 + d_y^2}$ est la distance euclidienne entre les deux sommets de coordonnées $(x_u,y_u)$ et $(x_v,y_v)$,
+avec $(d_x, d_y)$ le vecteur qui pointe de $v$ à $u$ (rappel: $(d_x,d_y) = (x_u-x_v, y_u-y_v)$).
+
+La force s'applique le long de la droite qui relie les deux sommets, en les éloignant l'un de l'autre :
+
+```
+f_x = force * d_x / d
+f_y = force * d_y /d
+```
+
+On applique donc un déplacement $(f_x, f_y)$ aux coordonnées de $u$ et une force $(-f_x, -f_y)$ à celles de $v$.
+ 
+
+### 1.4 Force d'attraction
+
+Seuls les sommets reliés par une arête s'attirent. Plus ils sont éloignés, plus l'attraction est forte :
+
+```
+force = d² / k
+```
+
+Là aussi, la force s'applique le long de la droite qui relie les deux sommets, en les rapprochant l'un de l'autre,
+c'est donc un déplacement $(-f_x, -f_y)$ qui sera appliquée aux coordonnées de $u$ et une force $(f_x, f_y)$ à celles de $v$.
+
+
+### 1.5 Déplacement et "température"
+
+À chaque itération :
+
+1. On calcule, pour chaque sommet, la somme de toutes les forces qui s'exercent sur lui (répulsion de tous les autres sommets + attraction de ses voisins). Cette somme est un vecteur 2D appelé *déplacement*.
+2. On déplace chaque sommet dans la direction de son déplacement, mais on limite la distance parcourue par une valeur appelée *température*. Cela évite que les sommets ne "sautent" de façon erratique d'une itération à l'autre.
+3. La température diminue progressivement au fil des itérations (on multiplie sa valeur par un facteur légèrement inférieur à 1, par exemple 0.98, à chaque itération). Ce refroidissement permet à l'algorithme de converger vers une configuration stable, un peu comme un recuit simulé.
+4. On s'assure que chaque sommet reste à l'intérieur du cadre d'affichage en bornant ses coordonnées.
+
+
+### 1.6 Implémentation et travail attendu
+
+> Dans l'onglet "Fruchterman-Reingold (layout)", programmez la fonction `force_directed`.
+
+Votre implémentation devra faire apparaître ces différentes étapes :
+
+**Initialisation**
+
+- Récupérer la liste des sommets du graphe.
+- Générer une position initiale aléatoire pour chaque sommet dans le cadre `[0, width] x [0, height]`.
+- Construire l'ensemble des arêtes du graphe sans doublons.
+- Calculer la distance idéale `k`.
+- Si `temperature` vaut `None`, initialiser une valeur par défaut (par exemple `width / 250`).
+
+
+**Boucle principale**
+
+Répéter `iterations` fois :
+
+1. **Calcul de la répulsion** : pour chaque paire de sommets distincts, calculer la force de répulsion et l'ajouter au déplacement de chacun des deux sommets (dans des directions opposées).
+
+   > ⚠️ Attention au cas où deux sommets sont exactement à la même position (distance nulle) : il faut éviter la division par zéro. Une solution simple consiste à ajouter un léger décalage aléatoire dans ce cas.
+
+2. **Calcul de l'attraction** : pour chaque arête du graphe, calculer la force d'attraction et l'ajouter au déplacement des deux sommets concernés (en sens opposé de la répulsion).
+
+3. **Déplacement des sommets** : pour chaque sommet, déplacer sa position dans la direction de son vecteur de déplacement, en limitant la distance parcourue à la valeur de la température courante. Puis borner les coordonnées pour rester dans le cadre (avec par exemple avec une marge de 40 pixels pour évite un affichage des sommets sur les bords de l'écran).
+
+4. **Refroidissement** : réduire la température (par exemple `temperature *= 0.98`).
+
+**Retour du résultat**
+
+Retourner un dictionnaire associant à chaque sommet ses coordonnées finales.
+
+---
+
+
+## 2. Algorithme de Havel-Hakimi
+
+La seconde partie du projet demande d'implémenter l'algorithme de Havel-Hakimi. Cet algorithme
+sert à décider si un vecteur de degrés correspond réellement à un graphe dont les sommets ont pour
+degré ce vecteur. Le vecteur de degrés est stocké dans une liste `vec` dans l'onglet "Vecteur de degrés".
+
+Votre implémentation devra être fonctionnelle, quel que soit le vecteur `vec` donné.
+
+### 2.1 Le théorème de Havel-Hakimi
+
+
+Soit $vec = [s, t_1, \dots, t_s, d_1, \dots, d_k]$ un vecteur d'entiers positifs ou nuls, dont les composantes sont triées par ordre décroissant.
+Soit $vec' = [t_1-1, \dots, t_s-1, d_1, \dots, d_k]$ le vecteur obtenu de $vec$ en y supprimant $s$ et en soustrayant $1$ de chacune des $s$ composantes qui suivent $s$ dans $vec$.
+Notons $vec''$ le vecteur obtenu de $vec'$ en triant ses composantes par ordre décroissant.
+
+Le théorème de Havel-Hakimi affirme :
+> $vec$ est un vecteur de degré correspondant à un graphe *si et seulement si* $vec''$ est un vecteur de degré correspondant à un graphe.
+
+
+### 2.2 Un algorithme de reconnaissance
+
+Nous utilisons le théorème précédent pour obtenir un algorithme attendant un vecteur `vec` en paramètre.
+Cet algorithme retourne `Vrai` si et seulement s'il existe un graphe ayant `vec` comme vecteur de degrés.
+
+Voici une description possible de cet algorithme, où le vecteur `vec` est indicé à partir de $1$ :
+
+
+
+```pseudocode
+algorithme HH(vec)
+    Trier les composantes de vec de façon décroissante
+    
+    Tant que (longueur(vec) ≥ 1) Faire
+        Supprimer de vec sa première composante et
+        la stocker dans s
+        
+        Si s > longueur(vec) Alors
+            Retourner Faux
+        
+        Pour i de 1 à s faire
+            Diminuer de 1 vec[i]
+            Si (vec[i] < 0) Alors
+                Retourner Faux
+        
+        Trier les composantes de vec de façon décroissante
+    
+    Retourner Vrai
+```
+
+
+
+### 2.3 Implémentation et travail attendu
+
+
+> Dans l'onglet "Havel-Hakimi (construction)", programmez une fonction `havel_hakimi` qui attend un vecteur `vec` et qui **construit** un graphe ayant le vecteur de degré `vec`.
+> Si une telle construction n'est pas possible, votre fonction retournera `None`.
+>
+> Vous programmerez également dans cet onglet une fonction `verifier` qui attendra en paramètre un vecteur de degré `vec` et un graphe `G` (tel que celui construit par votre fonction 'havel_hakimi') et qui retournera un booléen.
+> Cette fonction doit vérifier que le vecteur de degrés de `G` est bien le vecteur `vec`. 
+>
+> Mettez en oeuvre la fonction `verifier` dans l'onglet "Interface (main)" de sorte à afficher un message s'il y a divergence entre le vecteur donné dans l'onglet "Vecteur de degrés" et le graphe construit par votre fonction `havel_hakimi`.
+
+---
+
+## 3. Modalités
+
+- Le projet est à réaliser en binôme.
+- Langage : Python 3, aucune bibliothèque externe requise pour `force_directed` (uniquement `math` et `random`).
+- L'usage d'une IA est autorisé mais :
+	- il faut indiquer son usage dans les codes (un commentaire "code écrit avec l'aide de l'IA XXXX (précisez l'IA utilisée)");
+	- il faut avoir compris le code obtenu d'une IA et être capable de l'expliquer.
+- Votre code doit être commenté.
+- Vous indiquerez dans les commentaires de la fonction `Havel-Hakimi` sa complexité.
+- Vous rendrez un fichier `projet-Nom1-Nom2.html` contenant votre implémentation.
+
+Attention à bien rendre le fichier obtenu par l'action de "Télécharger" [voir la documentation de pyfrilet](https://codeberg.org/nopid/pyfrilet#t%C3%A9l%C3%A9charger).
+
+
+
+---
+
+
+
+
+
+
+</script>
+
+<script type="text/python" data-tab="Vecteur de degrés (input)">
+vec = [6, 5, 5, 4, 4, 3, 3, 3, 3, 3, 2, 2, 2, 2, 1, 0, 0]
+
+
+</script>
+
+<script type="text/python" data-tab="Fruchterman-Reingold (layout)">
+def force_directed(G, width, height, iterations=500, temperature=None, seed=None):
+    """
+    Calcule les coordonnées des sommets d'un graphe G pour son affichage,
+    en utilisant l'algorithme de Fruchterman-Reingold.
+
+    Paramètres
+    ----------
+    G : dict
+        Dictionnaire d'adjacence représentant un graphe non orienté.
+        Exemple : {'a': ['b', 'c'], 'b': ['a'], 'c': ['a']}
+    iterations : int
+        Nombre d'itérations de l'algorithme.
+    temperature : float ou None
+        Température initiale. Si None, une valeur par défaut est calculée.
+    seed : int ou None
+        Graine du générateur aléatoire, pour rendre les résultats reproductibles.
+
+    Retour
+    ------
+    dict
+        Dictionnaire associant à chaque sommet un tuple (x, y) de coordonnées.
+    """
+    
+    random.seed(seed)
+    
+    if temperature is None:
+        temperature = width / 250
+
+    vertices = list(G.keys())
+    n = len(vertices)
+
+    
+    # Positions initiales aléatoires
+    pos = {
+        v: [random.uniform(0, width),
+            random.uniform(0, height)]
+        for v in vertices
+    }
+    
+    # codez ci-après l'algorithme de force de Fruchterman-Reingold
+    edges = set()
+    for u in vertices:
+        for v in G[u]:
+            if u != v: 
+                edges.add((min(u, v), max(u, v)))
+                
+    k = sqrt((width * height) / n)
+
+    AllPairs = []
+    for i in range(len(vertices)):
+        for j in range(i + 1, len(vertices)):
+            AllPairs.append((vertices[i], vertices[j]))
+            
+        
+
+    for _ in range(iterations):
+        disp = {v: [0.0, 0.0] for v in vertices}
+        # repulsion
+        for u, v in AllPairs:
+            dx = pos[u][0] - pos[v][0]
+            dy = pos[u][1] - pos[v][1]
+            d = max(sqrt(dx*dx + dy*dy), 1e-9)
+            force = k*k / d
+            fx, fy = force * dx / d, force * dy / d
+            disp[u][0] += fx;  disp[u][1] += fy
+            disp[v][0] -= fx;  disp[v][1] -= fy
+    
+        # Attraction
+        for u, v in edges:
+            dx = pos[u][0] - pos[v][0]
+            dy = pos[u][1] - pos[v][1]
+            d = max(sqrt(dx*dx + dy*dy), 1e-9)
+            force = d*d / k
+            fx, fy = force * dx / d, force * dy / d
+            disp[u][0] -= fx;  disp[u][1] -= fy
+            disp[v][0] += fx;  disp[v][1] += fy
+    
+        # temp
+        for v in vertices:
+            dx, dy = disp[v]
+            norm = max(sqrt(dx*dx + dy*dy), 1e-9)
+            step = min(norm, temperature)
+            pos[v][0] += dx / norm * step
+            pos[v][1] += dy / norm * step
+            # reste dans le cadre
+            pos[v][0] = min(max(pos[v][0], 0), width)
+            pos[v][1] = min(max(pos[v][1], 0), height)
+    
+        temperature *= 0.98
+    
+    
+        
+    return {v: tuple(p) for v, p in pos.items()}
+
+
+</script>
+
+<script type="text/python" data-tab="Havel-Hakimi (construction)">
+def havel_hakimi(vec):
+    """
+    Construit un graphe simple non orienté à partir d'une séquence de degrés,
+    en utilisant l'algorithme (constructif) de Havel-Hakimi.
+
+    Paramètres
+    ----------
+    vec : list de int
+        Séquence de degrés souhaitée, un entier par sommet.
+        Exemple : [3, 3, 2, 2, 1, 1]
+
+    Retour
+    ------
+    dict ou None
+        Dictionnaire d'adjacence représentant un graphe non orienté dont
+        la séquence de degrés correspond à `vec`, si un tel graphe existe.
+        Les sommets sont nommés par des lettres ('a', 'b', 'c', ...) attribuées
+        aux degrés triés par ordre décroissant.
+        Retourne None si `vec` n'est pas une séquence graphique (aucun graphe
+        simple ne peut réaliser cette séquence de degrés).
+    """
+    vec_sorted = sorted(vec, reverse=True)
+    vertices = [chr(97+i) for i in range(len(vec_sorted))]
+    G = {v:[] for v in vertices}
+
+    # codez ci-après l'algorithme de Havel-Hakimi
+    
+    
+
+
+    # supprimez le code qui suit, il génére un graphe aléatoire !
+    random.seed(42)
+    for u, v in random.sample([(u,v) for u in vertices for v in vertices if u!=v], 3*len(vertices)):
+        G[u].append(v)
+        G[v].append(u)
+
+
+    
+    return G
+
+
+</script>
+
+<script type="text/python" data-tab="Interface (main)">
+from p5 import *
+import math
+import random
+
+hovered_node = None
+G = None
+positions = None
+
+def setup():
+    global G, positions
+    size(1400, 800)
+    frameRate(30)
+    G = havel_hakimi(vec)
+    if G:
+        positions = force_directed(G, width, height, seed=None)
+
+
+def draw():
+    background(20)
+    
+    if not G:
+        textSize(42)
+        stroke('yellow')
+        fill('yellow');
+        text('>   séquence de degrés impossible', 10, 40)
+        return
+    
+    stroke('grey')
+    strokeWeight(4)
+    for u in G:
+        x_u, y_u = positions[u]
+        for v in G[u]:
+            x_v, y_v = positions[v]
+            line(x_u, y_u, x_v, y_v)
+
+    for v in positions:
+        fill('#e0af68')
+        if hovered_node == v:
+            circle(positions[v][0], positions[v][1], 30)
+        else:
+            circle(positions[v][0], positions[v][1], 20)
+    
+
+def node_at(mx, my):
+    if G is None:
+        return None
+    for v in G:
+        x, y = positions[v]
+        if math.dist((mx, my), (x, y)) <= 10:
+            return v
+    return None
+
+
+def mouseReleased():
+    # Bouton souris relâché.
+    global hovered_node
+    hovered_node = None
+
+
+def mouseDragged():
+    #Souris déplacée bouton enfoncé.
+    if hovered_node:
+        positions[hovered_node] = (mouse_x, mouse_y)
+
+
+def mouseMoved():
+    #Souris déplacée sans bouton (survol).
+    global hovered_node    
+    hovered_node = node_at(mouse_x, mouse_y)
+
+
+
+</script>
+
+</body>
+</html>
